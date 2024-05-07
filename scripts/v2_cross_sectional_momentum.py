@@ -79,11 +79,6 @@ class CrossSectionalMomentumConfig(StrategyV2ConfigBase):
     # script_file_name: str = Field(default_factory=lambda: os.path.basename(__file__))
     # candles_config: List[CandlesConfig] = []
     # controllers_config: List[str] = []
-    # rsi_period: int = Field(
-    #     default=14,
-    #     gt=0,
-    #     client_data=ClientFieldData(prompt=lambda mi: "Enter the RSI period (e.g. 14): ", prompt_on_new=True),
-    # )
     # markets_list = [
     #     Market(
     #         "binance_perpetual",
@@ -161,6 +156,3 @@ class CrossSectionalMomentum(StrategyV2Base):
 
     def apply_initial_setting(self):
         pass
-
-    # def on_data_update(self, data):
-    #     print(f"Received data update at {self.current_timestamp}: {data}")
