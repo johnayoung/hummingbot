@@ -1,19 +1,14 @@
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 import pandas as pd
-import pandas_ta as ta  # noqa: F401
-from pydantic import Field
+from pydantic import Field, validator
 
 from hummingbot.client.config.config_data_types import ClientFieldData
 from hummingbot.data_feed.candles_feed.candles_factory import CandlesConfig
-from hummingbot.smart_components.controllers.rebalance_controller_base import (
-    RebalanceController,
-    RebalanceControllerConfigBase,
-)
-from hummingbot.smart_components.models.executor_actions import ExecutorAction
+from hummingbot.smart_components.controllers.controller_base import ControllerBase, ControllerConfigBase
 
 
-class EMACrossoverControllerConfig(RebalanceControllerConfigBase):
+class EMACrossoverControllerConfig(ControllerConfigBase):
     controller_type = "directional_trading"
     controller_name = "ema_crossover_v1"
     connector_name: str = Field(
@@ -47,15 +42,20 @@ class EMACrossoverControllerConfig(RebalanceControllerConfigBase):
         gt=0,
         client_data=ClientFieldData(prompt=lambda mi: "Enter the slow EMA period (e.g. 50): ", prompt_on_new=True),
     )
-    lookback_period: int = Field(
-        default=30,
-        gt=0,
-        client_data=ClientFieldData(prompt=lambda mi: "Enter the lookback period: ", prompt_on_new=True),
+
+    # Test mode always returns 1 in get_signal, and does not execute orders
+    test_mode: bool = Field(
+        default=False,
+        client_data=ClientFieldData(prompt_on_new=True, prompt=lambda mi: "Run in test mode? (Yes/No) "),
     )
 
     @property
     def max_records(self) -> int:
         return self.ema_slow + 30
+
+    @validator("test_mode", pre=True, always=True)
+    def parse_test_mode(cls, v: Any, values: Dict[str, Any]) -> bool:
+        return str(v).lower() in {"true", "yes", "y"}
 
     def update_markets(self, markets: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
         if self.connector_name not in markets:
@@ -64,7 +64,7 @@ class EMACrossoverControllerConfig(RebalanceControllerConfigBase):
         return markets
 
 
-class EMACrossoverController(RebalanceController):
+class EMACrossoverController(ControllerBase):
     def __init__(self, config: EMACrossoverControllerConfig, *args, **kwargs):
         self.config = config
         if len(self.config.candles_config) == 0:
@@ -77,13 +77,6 @@ class EMACrossoverController(RebalanceController):
                 )
             ]
         super().__init__(config, *args, **kwargs)
-
-    async def update_processed_data(self):
-        """
-        Update the processed data based on the current state of the strategy.
-        """
-        signal = self.get_signal()
-        self.processed_data = {"signal": signal}
 
     def get_processed_data(self) -> pd.DataFrame:
         df = self.market_data_provider.get_candles_df(
@@ -99,15 +92,13 @@ class EMACrossoverController(RebalanceController):
 
         df["fast_ema"] = df.ta.ema(length=self.config.ema_fast)
         df["slow_ema"] = df.ta.ema(length=self.config.ema_slow)
-        df["percent_return"] = df.ta.ema(length=self.config.lookback_period, close="close", fillna=True).pct_change()
 
         return df
 
     def get_signal(self) -> int:
         if self.config.test_mode:
             self.logger().info("Running in test mode. Skipping signal check.")
-            return 1
-
+            return -1
         df = self.get_processed_data()
 
         last = df.iloc[-1]
@@ -122,23 +113,9 @@ class EMACrossoverController(RebalanceController):
             return -1  # Trigger position close
         return 0  # No action
 
-    def get_target_assets(self) -> List[str]:
+    async def update_processed_data(self):
         """
-        Get the rebalance assets for the strategy.
+        Update the processed data based on the current state of the strategy.
         """
-        return ["AKT", "CRV", "UNI", "SUSHI", "PAXG", "SNX"]
-
-    def get_weighting_strategy_data(self) -> Optional[Any]:
-        """
-        Get additional data needed for the strategy to calculate weightings.
-        """
-        return None
-
-    def determine_executor_actions(self) -> List[ExecutorAction]:
-        """
-        Determine actions based on the provided executor handler report.
-        """
-        actions = []
-        actions.extend(self.create_actions_proposal())
-        actions.extend(self.stop_actions_proposal())
-        return actions
+        signal = self.get_signal()
+        self.processed_data["signal"] = signal
