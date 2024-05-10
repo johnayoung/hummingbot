@@ -66,3 +66,10 @@ class TrackedOrder:
             return self.order.is_done
         else:
             return False
+
+    @property
+    def is_filled(self):
+        if self.order:
+            return self.order.is_filled
+        else:
+            return False

@@ -141,6 +141,20 @@ class RebalanceControllerBase(ControllerBase):
         self.config = config
         self.portfolio_status: PortfolioStatus = PortfolioStatus.IDLE
 
+    @abstractmethod
+    def get_target_assets(self) -> List[str]:
+        """
+        Get the rebalance assets for the strategy.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_weighting_strategy_data(self) -> Optional[Any]:
+        """
+        Get additional data needed for the strategy to calculate weightings.
+        """
+        raise NotImplementedError
+
     def get_weighting_strategy(self) -> WeightingStrategy:
         return WeightingStrategy.get_weighting_strategy(self.config.weighting_strategy)
 
@@ -355,20 +369,6 @@ class RebalanceControllerBase(ControllerBase):
         """
         portfolio_equity = self.get_portfolio_total_equity()
         return portfolio_equity * Decimal(self.config.target_quote_weight)
-
-    @abstractmethod
-    def get_target_assets(self) -> List[str]:
-        """
-        Get the rebalance assets for the strategy.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_weighting_strategy_data(self) -> Optional[Any]:
-        """
-        Get additional data needed for the strategy to calculate weightings.
-        """
-        raise NotImplementedError
 
     def calculate_weights(self):
         """

@@ -1,0 +1,18 @@
+from enum import Enum
+from typing import Dict
+
+from hummingbot.smart_components.executors.data_types import ExecutorConfigBase
+
+
+class RebalanceExecutorStatus(Enum):
+    INITIALIZING = 1
+    SELLING = 2
+    BUYING = 3
+    COMPLETED = 4
+    FAILED = 5
+
+
+class RebalanceExecutorConfig(ExecutorConfigBase):
+    connector_name: str
+    target_weights: Dict[str, float]
+    quote_asset: str
