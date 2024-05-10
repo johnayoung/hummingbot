@@ -28,18 +28,16 @@ class RebalanceExecutor(ExecutorBase):
     def __init__(self, strategy: ScriptStrategyBase, config: RebalanceExecutorConfig, **kwargs):
         super().__init__(strategy=strategy, connectors=[config.connector_name], config=config)
         self.config = config
+        self.current_balances = config.current_balances
         self.target_weights = config.target_weights
         self.quote_asset = config.quote_asset
+        self.quote_weight = config.quote_weight
+        self.min_order_amount_to_rebalance_quote = config.min_order_amount_to_rebalance_quote
         self.rebalance_status = RebalanceExecutorStatus.INITIALIZING
-        self.current_balances = self.get_current_balances()
         self.tracked_orders: Dict[str, TrackedOrder] = {}
 
     def get_trading_pair(self, asset: str) -> str:
         return f"{asset}-{self.quote_asset}"
-
-    def get_current_balances(self) -> Dict[str, float]:
-        balances = self._strategy.connectors[self._strategy.connector_name].get_all_balances()
-        return {asset: float(balance) for asset, balance in balances.items()}
 
     def get_asset_value_in_quote(self, asset: str, amount: float) -> float:
         # Fetches the price of the asset in terms of the quote asset
@@ -57,11 +55,16 @@ class RebalanceExecutor(ExecutorBase):
                 total_value += self.get_asset_value_in_quote(asset, amount)
             else:
                 total_value += amount
+
         return total_value
 
+    def calculate_total_rebalance_value(self) -> float:
+        total_value = self.calculate_total_portfolio_value()
+        return total_value - (total_value * self.quote_weight)
+
     def calculate_rebalance_actions(self) -> List[Dict[str, Any]]:
-        total_portfolio_value = self.calculate_total_portfolio_value()
-        target_values = {asset: total_portfolio_value * weight for asset, weight in self.target_weights.items()}
+        total_rebalance_value = self.calculate_total_rebalance_value()
+        target_values = {asset: total_rebalance_value * weight for asset, weight in self.target_weights.items()}
 
         trade_actions = []
         for asset, target_value in target_values.items():
@@ -81,7 +84,7 @@ class RebalanceExecutor(ExecutorBase):
             else:
                 amount = amount_in_quote
 
-            if abs(amount) > 0:
+            if abs(amount) > 0 and abs(amount) >= self.min_order_amount_to_rebalance_quote:
                 trade_actions.append({"asset": asset, "amount": amount, "side": "buy" if amount > 0 else "sell"})
 
         return trade_actions

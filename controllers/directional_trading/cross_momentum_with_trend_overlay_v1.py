@@ -1,11 +1,11 @@
 import random
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Optional, Set
 
 from pydantic import Field
 
 from controllers.directional_trading.ema_crossover_v1 import EMACrossoverController, EMACrossoverControllerConfig
 from hummingbot.client.config.config_data_types import ClientFieldData
-from hummingbot.smart_components.controllers.rebalance_controller_base import (
+from hummingbot.smart_components.controllers.rebalance_controller_base.rebalance_controller_base import (
     RebalanceControllerBase,
     RebalanceControllerConfigBase,
 )
@@ -33,7 +33,7 @@ class CrossMomentumWithTrendOverlayControllerConfig(EMACrossoverControllerConfig
         markets[self.connector_name].add(self.ema_trading_pair)
 
         for asset in self.screener_assets.split(","):
-            trading_pair = f"{asset}-{self.target_quote_asset}"
+            trading_pair = f"{asset}-{self.quote_asset}"
             markets[self.connector_name].add(trading_pair)
 
         return markets
@@ -44,13 +44,18 @@ class CrossMomentumWithTrendOverlayController(EMACrossoverController, RebalanceC
         self.config = config
         super().__init__(config, *args, **kwargs)
 
-    def get_target_assets(self) -> List[str]:
+    def get_target_assets(self) -> Set[str]:
         """
-        Get the rebalance assets for the strategy.
-        """
-        target_assets = random.sample(self.config.screener_assets.split(","), 5)
+        Get the rebalance assets for the strategy. This should include existing assets, as well as new assets to add.
 
-        return target_assets
+        TODO: Actual logic implementation
+        """
+        new_assets = set()
+
+        for asset in random.sample(self.config.screener_assets.split(","), 5):
+            new_assets.add(asset)
+
+        return new_assets
 
     def get_weighting_strategy_data(self) -> Optional[Any]:
         """

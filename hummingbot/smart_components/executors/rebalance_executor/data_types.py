@@ -1,7 +1,10 @@
+from decimal import Decimal
 from enum import Enum
 from typing import Dict
 
 from hummingbot.smart_components.executors.data_types import ExecutorConfigBase
+
+REBALANCE_EXECUTOR_TYPE = "rebalance_executor"
 
 
 class RebalanceExecutorStatus(Enum):
@@ -13,6 +16,10 @@ class RebalanceExecutorStatus(Enum):
 
 
 class RebalanceExecutorConfig(ExecutorConfigBase):
+    type: str = REBALANCE_EXECUTOR_TYPE
     connector_name: str
+    current_balances: Dict[str, float]
     target_weights: Dict[str, float]
     quote_asset: str
+    quote_weight: float
+    min_order_amount_to_rebalance_quote: Decimal
