@@ -41,19 +41,24 @@ class ArbitrageExecutor(ExecutorBase):
             {"WONE", "ONE"},
         ]
         same_token_condition = first_token == second_token
-        tokens_interchangeable_condition = any(({first_token, second_token} <= interchangeable_pair
-                                                for interchangeable_pair
-                                                in interchangeable_tokens))
+        tokens_interchangeable_condition = any(
+            ({first_token, second_token} <= interchangeable_pair for interchangeable_pair in interchangeable_tokens)
+        )
         # for now, we will consider all the stablecoins interchangeable
         stable_coins_condition = "USD" in first_token and "USD" in second_token
         return same_token_condition or tokens_interchangeable_condition or stable_coins_condition
 
     def __init__(self, strategy: ScriptStrategyBase, config: ArbitrageExecutorConfig, update_interval: float = 1.0):
-        if not self.is_arbitrage_valid(pair1=config.buying_market.trading_pair,
-                                       pair2=config.selling_market.trading_pair):
+        if not self.is_arbitrage_valid(
+            pair1=config.buying_market.trading_pair, pair2=config.selling_market.trading_pair
+        ):
             raise Exception("Arbitrage is not valid since the trading pairs are not interchangeable.")
-        super().__init__(strategy=strategy, connectors=[config.buying_market.connector_name, config.selling_market.connector_name],
-                         config=config, update_interval=update_interval)
+        super().__init__(
+            strategy=strategy,
+            connectors=[config.buying_market.connector_name, config.selling_market.connector_name],
+            config=config,
+            update_interval=update_interval,
+        )
         self.buying_market = config.buying_market
         self.selling_market = config.selling_market
         self.min_profitability = config.min_profitability
@@ -77,8 +82,9 @@ class ArbitrageExecutor(ExecutorBase):
     def is_arbitrage_valid(self, pair1, pair2):
         base_asset1, quote_asset1 = split_hb_trading_pair(pair1)
         base_asset2, quote_asset2 = split_hb_trading_pair(pair2)
-        return self._are_tokens_interchangeable(base_asset1, base_asset2) and \
-            self._are_tokens_interchangeable(quote_asset1, quote_asset2)
+        return self._are_tokens_interchangeable(base_asset1, base_asset2) and self._are_tokens_interchangeable(
+            quote_asset1, quote_asset2
+        )
 
     def get_net_pnl_quote(self) -> Decimal:
         if self.arbitrage_status == ArbitrageExecutorStatus.COMPLETED:
@@ -113,7 +119,9 @@ class ArbitrageExecutor(ExecutorBase):
     def sell_order(self, value: TrackedOrder):
         self._sell_order = value
 
-    async def get_resulting_price_for_amount(self, exchange: str, trading_pair: str, is_buy: bool, order_amount: Decimal):
+    async def get_resulting_price_for_amount(
+        self, exchange: str, trading_pair: str, is_buy: bool, order_amount: Decimal
+    ):
         return await self.connectors[exchange].get_quote_price(trading_pair, is_buy, order_amount)
 
     async def control_task(self):
@@ -134,8 +142,12 @@ class ArbitrageExecutor(ExecutorBase):
                 self.check_order_status()
 
     def check_order_status(self):
-        if self.buy_order.order and self.buy_order.order.is_filled and \
-                self.sell_order.order and self.sell_order.order.is_filled:
+        if (
+            self.buy_order.order
+            and self.buy_order.order.is_filled
+            and self.sell_order.order
+            and self.sell_order.order.is_filled
+        ):
             self.arbitrage_status = ArbitrageExecutorStatus.COMPLETED
             self.stop()
 
@@ -173,28 +185,35 @@ class ArbitrageExecutor(ExecutorBase):
             trading_pair=self.buying_market.trading_pair,
             is_buy=True,
             order_amount=self.order_amount,
-            asset=base_without_wrapped
+            asset=base_without_wrapped,
         )
         sell_fee = await self.get_tx_cost_in_asset(
             exchange=self.selling_market.connector_name,
             trading_pair=self.selling_market.trading_pair,
             is_buy=False,
             order_amount=self.order_amount,
-            asset=base_without_wrapped)
+            asset=base_without_wrapped,
+        )
         self._last_tx_cost = buy_fee + sell_fee
         return self._last_tx_cost / self.order_amount
 
     async def get_buy_and_sell_prices(self):
-        buy_price_task = asyncio.create_task(self.get_resulting_price_for_amount(
-            exchange=self.buying_market.connector_name,
-            trading_pair=self.buying_market.trading_pair,
-            is_buy=True,
-            order_amount=self.order_amount))
-        sell_price_task = asyncio.create_task(self.get_resulting_price_for_amount(
-            exchange=self.selling_market.connector_name,
-            trading_pair=self.selling_market.trading_pair,
-            is_buy=False,
-            order_amount=self.order_amount))
+        buy_price_task = asyncio.create_task(
+            self.get_resulting_price_for_amount(
+                exchange=self.buying_market.connector_name,
+                trading_pair=self.buying_market.trading_pair,
+                is_buy=True,
+                order_amount=self.order_amount,
+            )
+        )
+        sell_price_task = asyncio.create_task(
+            self.get_resulting_price_for_amount(
+                exchange=self.selling_market.connector_name,
+                trading_pair=self.selling_market.trading_pair,
+                is_buy=False,
+                order_amount=self.order_amount,
+            )
+        )
 
         buy_price, sell_price = await asyncio.gather(buy_price_task, sell_price_task)
         return buy_price, sell_price
@@ -205,7 +224,9 @@ class ArbitrageExecutor(ExecutorBase):
             raise Exception("Could not get buy and sell prices")
         return (self._last_sell_price - self._last_buy_price) / self._last_buy_price
 
-    async def get_tx_cost_in_asset(self, exchange: str, trading_pair: str, is_buy: bool, order_amount: Decimal, asset: str):
+    async def get_tx_cost_in_asset(
+        self, exchange: str, trading_pair: str, is_buy: bool, order_amount: Decimal, asset: str
+    ):
         connector = self.connectors[exchange]
         price = await self.get_resulting_price_for_amount(exchange, trading_pair, is_buy, order_amount)
         if self.is_amm_connector(exchange=exchange):
@@ -220,7 +241,7 @@ class ArbitrageExecutor(ExecutorBase):
                 order_side=TradeType.BUY if is_buy else TradeType.SELL,
                 amount=order_amount,
                 price=price,
-                is_maker=False
+                is_maker=False,
             )
             return fee.fee_amount_in_token(
                 trading_pair=trading_pair,
@@ -252,14 +273,22 @@ class ArbitrageExecutor(ExecutorBase):
             trade_pnl_pct = (self._last_sell_price - self._last_buy_price) / self._last_buy_price
             tx_cost_pct = self._last_tx_cost / self.order_amount
             base, quote = split_hb_trading_pair(trading_pair=self.buying_market.trading_pair)
-            lines.extend([f"""
+            lines.extend(
+                [
+                    f"""
     Arbitrage Status: {self.arbitrage_status}
     - BUY: {self.buying_market.connector_name}:{self.buying_market.trading_pair}  --> SELL: {self.selling_market.connector_name}:{self.selling_market.trading_pair} | Amount: {self.order_amount:.2f}
     - Trade PnL (%): {trade_pnl_pct * 100:.2f} % | TX Cost (%): -{tx_cost_pct * 100:.2f} % | Net PnL (%): {(trade_pnl_pct - tx_cost_pct) * 100:.2f} %
     -------------------------------------------------------------------------------
-    """])
+    """
+                ]
+            )
             if self.arbitrage_status == ArbitrageExecutorStatus.COMPLETED:
-                lines.extend([f"Total Profit (%): {self.net_pnl_pct * 100:.2f} | Total Profit ({quote}): {self.net_pnl_quote:.4f}"])
+                lines.extend(
+                    [
+                        f"Total Profit (%): {self.net_pnl_pct * 100:.2f} | Total Profit ({quote}): {self.net_pnl_quote:.4f}"
+                    ]
+                )
             return lines
         else:
             msg = ["There was an error while formatting the status for the executor."]

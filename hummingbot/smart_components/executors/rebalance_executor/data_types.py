@@ -18,7 +18,6 @@ class RebalanceExecutorStatus(Enum):
 class RebalanceExecutorConfig(ExecutorConfigBase):
     type: str = REBALANCE_EXECUTOR_TYPE
     connector_name: str
-    current_balances: Dict[str, float]
     target_weights: Dict[str, float]
     quote_asset: str
     quote_weight: float

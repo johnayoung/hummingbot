@@ -9,6 +9,7 @@ from pydantic import Field
 from controllers.directional_trading.ema_crossover_v1 import EMACrossoverController, EMACrossoverControllerConfig
 from hummingbot.client.config.config_data_types import ClientFieldData
 from hummingbot.client.hummingbot_application import HummingbotApplication
+from hummingbot.data_feed.candles_feed.candles_factory import CandlesConfig
 from hummingbot.smart_components.controllers.data_types.data_types import EqualWeighting
 from hummingbot.smart_components.executors.rebalance_executor.data_types import (
     REBALANCE_EXECUTOR_TYPE,
@@ -16,7 +17,7 @@ from hummingbot.smart_components.executors.rebalance_executor.data_types import 
 )
 from hummingbot.smart_components.models.executor_actions import CreateExecutorAction, ExecutorAction
 
-DEFAULT_SCREENER_ASSETS = ["USDC", "ETH", "SOL", "DOGE", "NEAR", "RNDR", "ADA", "AVAX", "XRP", "FET", "XMR", "WIF"]
+DEFAULT_SCREENER_ASSETS = ["USDC", "ETH", "SOL", "DOGE", "NEAR", "RNDR", "ADA", "AVAX", "XRP", "FET", "XMR"]
 
 
 class CrossMomentumWithTrendOverlayControllerConfig(EMACrossoverControllerConfig):
@@ -51,10 +52,25 @@ class CrossMomentumWithTrendOverlayControllerConfig(EMACrossoverControllerConfig
             prompt_on_new=True, prompt=lambda mi: "Enter the assets to use for the screener universe:"
         ),
     )
-    lookback_period: int = Field(
+    screener_interval: str = Field(
+        default="1d",
+        client_data=ClientFieldData(
+            prompt=lambda mi: "Enter the interval for the screener data (e.g., 1m, 5m, 1h, 1d): ", prompt_on_new=True
+        ),
+    )
+    screener_lookback_period: int = Field(
         default=5,
         gt=0,
         client_data=ClientFieldData(prompt=lambda mi: "Enter the lookback period (e.g. 5): ", prompt_on_new=True),
+    )
+    cooldown_time: int = Field(
+        default=60 * 5,
+        gt=0,
+        client_data=ClientFieldData(
+            is_updatable=True,
+            prompt_on_new=False,
+            prompt=lambda mi: "Specify the cooldown time in seconds after executing a rebalance (e.g., 300 for 5 minutes):",
+        ),
     )
 
     def update_markets(self, markets: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
@@ -72,6 +88,16 @@ class CrossMomentumWithTrendOverlayControllerConfig(EMACrossoverControllerConfig
 class CrossMomentumWithTrendOverlayController(EMACrossoverController):
     def __init__(self, config: CrossMomentumWithTrendOverlayControllerConfig, *args, **kwargs):
         self.config = config
+        # Add screener assets to candles_config
+        for asset in config.screener_assets.split(","):
+            self.config.candles_config = [
+                CandlesConfig(
+                    connector=config.connector_name,
+                    trading_pair=f"{asset}-{config.quote_asset}",
+                    interval=config.screener_interval,
+                    max_records=config.screener_lookback_period,
+                )
+            ]
         super().__init__(config, *args, **kwargs)
 
     async def update_processed_data(self):
@@ -99,7 +125,7 @@ class CrossMomentumWithTrendOverlayController(EMACrossoverController):
         return current_assets, target_assets, assets_to_close, all_assets
 
     def calculate_target_weights(self, to_quote: bool = False) -> Dict[str, float]:
-        current_assets, target_assets, assets_to_close, all_assets = self.calculate_weights_data()
+        _, _, assets_to_close, all_assets = self.calculate_weights_data()
 
         if to_quote:
             target_weights = {asset: 0.0 for asset in all_assets}
@@ -151,15 +177,14 @@ class CrossMomentumWithTrendOverlayController(EMACrossoverController):
         """
         Check if a rebalance executor can be created. Only one rebalance executor is allowed at a time.
         """
-        return (
-            len(
-                self.filter_executors(
-                    executors=self.executors_info,
-                    filter_func=lambda x: x.is_active and x.type == REBALANCE_EXECUTOR_TYPE,
-                )
-            )
-            == 0
+        active_executors = self.filter_executors(
+            executors=self.executors_info, filter_func=lambda x: x.is_active and x.type == REBALANCE_EXECUTOR_TYPE
         )
+        max_timestamp = max([executor.timestamp for executor in active_executors], default=0)
+
+        active_executors_condition = len(active_executors) == 0
+        cooldown_condition = time.time() - max_timestamp > self.config.cooldown_time
+        return active_executors_condition and cooldown_condition
 
     def get_rebalance_executor_config(self, target_weights: Dict[str, float]) -> RebalanceExecutorConfig:
         """
@@ -168,7 +193,6 @@ class CrossMomentumWithTrendOverlayController(EMACrossoverController):
         return RebalanceExecutorConfig(
             timestamp=time.time(),
             connector_name=self.config.connector_name,
-            current_balances=self.get_current_balances(),
             target_weights=target_weights,
             quote_asset=self.config.quote_asset,
             quote_weight=self.config.quote_weight,
