@@ -1,11 +1,17 @@
-from typing import Any, Dict, List, Set
+from typing import Dict, List, Set
 
 import pandas as pd
-from pydantic import Field, validator
+from pydantic import Field
 
 from hummingbot.client.config.config_data_types import ClientFieldData
 from hummingbot.data_feed.candles_feed.candles_factory import CandlesConfig
 from hummingbot.smart_components.controllers.controller_base import ControllerBase, ControllerConfigBase
+
+
+class TestModeOptions:
+    ALWAYS_REBALANCE = 1
+    STANDARD = 0
+    ALWAYS_SELL = -1
 
 
 class EMACrossoverControllerConfig(ControllerConfigBase):
@@ -43,19 +49,19 @@ class EMACrossoverControllerConfig(ControllerConfigBase):
         client_data=ClientFieldData(prompt=lambda mi: "Enter the slow EMA period (e.g. 50): ", prompt_on_new=True),
     )
 
-    # Test mode always returns 1 in get_signal, and does not execute orders
-    test_mode: bool = Field(
-        default=False,
-        client_data=ClientFieldData(prompt_on_new=True, prompt=lambda mi: "Run in test mode? (Yes/No) "),
+    test_mode: int = Field(
+        default=TestModeOptions.STANDARD,
+        gt=-2,
+        lt=2,
+        client_data=ClientFieldData(
+            prompt_on_new=True,
+            prompt=lambda mi: "Enter the test mode (1 = always rebalance, 0 = standard, -1 = always sell):",
+        ),
     )
 
     @property
     def max_records(self) -> int:
         return self.ema_slow + 30
-
-    @validator("test_mode", pre=True, always=True)
-    def parse_test_mode(cls, v: Any, values: Dict[str, Any]) -> bool:
-        return str(v).lower() in {"true", "yes", "y"}
 
     def update_markets(self, markets: Dict[str, Set[str]]) -> Dict[str, Set[str]]:
         if self.connector_name not in markets:
@@ -96,9 +102,11 @@ class EMACrossoverController(ControllerBase):
         return df
 
     def get_signal(self) -> int:
-        if self.config.test_mode:
-            self.logger().info("Running in test mode. Skipping signal check.")
+        if self.config.test_mode == TestModeOptions.ALWAYS_REBALANCE:
+            return 1
+        elif self.config.test_mode == TestModeOptions.ALWAYS_SELL:
             return -1
+
         df = self.get_processed_data()
 
         last = df.iloc[-1]

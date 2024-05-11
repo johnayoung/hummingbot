@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Set
 
 
 class WeightingStrategyType(Enum):
@@ -15,7 +15,7 @@ class WeightingStrategy(ABC):
     """
 
     @abstractmethod
-    def calculate_weights(self, assets: Set[str], data: Optional[Any]) -> Dict[str, float]:
+    def calculate_weights(self, assets: Set[str], data: Dict[str, Any]) -> Dict[str, float]:
         """
         Calculate and return the weights for the given assets based on provided data.
 
@@ -27,14 +27,16 @@ class WeightingStrategy(ABC):
 
 
 class EqualWeighting(WeightingStrategy):
-    def calculate_weights(self, assets: Set[str], data: Optional[Any]) -> Dict[str, float]:
-        n = len(assets)
+    def calculate_weights(self, assets: Set[str], data: Dict[str, Any]) -> Dict[str, float]:
+        excluded_assets = data.get("excluded_assets", set())
+        n = len(assets - excluded_assets)
         weight = 1 / n if n > 0 else 0  # Avoid division by zero
-        return {asset: weight for asset in assets}
+
+        return {asset: weight if asset not in excluded_assets else 0 for asset in assets}
 
 
 class MarketCapWeighting(WeightingStrategy):
-    def calculate_weights(self, assets: Set[str], data: Optional[Any]) -> Dict[str, float]:
+    def calculate_weights(self, assets: Set[str], data: Dict[str, Any]) -> Dict[str, float]:
         if not data:
             raise ValueError("Market cap data is required for MarketCapWeighting")
         market_caps = data["market_caps"]
@@ -43,7 +45,7 @@ class MarketCapWeighting(WeightingStrategy):
 
 
 class LiquidityWeighting(WeightingStrategy):
-    def calculate_weights(self, assets: Set[str], data: Optional[Any]) -> Dict[str, float]:
+    def calculate_weights(self, assets: Set[str], data: Dict[str, Any]) -> Dict[str, float]:
         if not data:
             raise ValueError("Trading volume data is required for LiquidityWeighting")
         trading_volumes = data["trading_volumes"]

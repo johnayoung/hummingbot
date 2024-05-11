@@ -1,14 +1,14 @@
 import time
 from abc import abstractmethod
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 from pydantic import Field, validator
 
 from hummingbot.client.config.config_data_types import ClientFieldData
 from hummingbot.client.hummingbot_application import HummingbotApplication
 from hummingbot.smart_components.controllers.controller_base import ControllerBase, ControllerConfigBase
-from hummingbot.smart_components.controllers.rebalance_controller_base.data_types import (
+from hummingbot.smart_components.controllers.data_types.data_types import (
     WeightingStrategyType,
     get_weighting_strategy,
     get_weighting_strategy_members,
@@ -21,7 +21,7 @@ from hummingbot.smart_components.models.executor_actions import CreateExecutorAc
 
 
 class RebalanceControllerConfigBase(ControllerConfigBase):
-    controller_type = "rebalance"
+    controller_type = "directional_trading"
     connector_name: str = Field(
         default="kraken",
         client_data=ClientFieldData(
@@ -83,7 +83,7 @@ class RebalanceControllerBase(ControllerBase):
         raise NotImplementedError
 
     @abstractmethod
-    def get_weighting_strategy_data(self) -> Optional[Any]:
+    def get_weighting_strategy_data(self) -> Dict[str, Any]:
         """
         Get additional data needed for the strategy to calculate weightings.
         """
@@ -92,6 +92,9 @@ class RebalanceControllerBase(ControllerBase):
     def get_current_balances(self) -> Dict[str, float]:
         hb = HummingbotApplication.main_application()
         return hb.markets[self.config.connector_name].get_all_balances()
+
+    def get_current_assets(self) -> Set[str]:
+        return set(self.get_current_balances().keys())
 
     def determine_executor_actions(self) -> List[ExecutorAction]:
         """

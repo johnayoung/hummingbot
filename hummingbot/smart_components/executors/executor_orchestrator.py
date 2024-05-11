@@ -10,6 +10,8 @@ from hummingbot.smart_components.executors.dca_executor.data_types import DCAExe
 from hummingbot.smart_components.executors.dca_executor.dca_executor import DCAExecutor
 from hummingbot.smart_components.executors.position_executor.data_types import PositionExecutorConfig
 from hummingbot.smart_components.executors.position_executor.position_executor import PositionExecutor
+from hummingbot.smart_components.executors.rebalance_executor.data_types import RebalanceExecutorConfig
+from hummingbot.smart_components.executors.rebalance_executor.rebalance_executor import RebalanceExecutor
 from hummingbot.smart_components.executors.twap_executor.data_types import TWAPExecutorConfig
 from hummingbot.smart_components.executors.twap_executor.twap_executor import TWAPExecutor
 from hummingbot.smart_components.executors.xemm_executor.data_types import XEMMExecutorConfig
@@ -28,6 +30,7 @@ class ExecutorOrchestrator:
     """
     Orchestrator for various executors.
     """
+
     _logger = None
 
     @classmethod
@@ -98,6 +101,8 @@ class ExecutorOrchestrator:
             executor = TWAPExecutor(self.strategy, executor_config, self.executors_update_interval)
         elif isinstance(executor_config, XEMMExecutorConfig):
             executor = XEMMExecutor(self.strategy, executor_config, self.executors_update_interval)
+        elif isinstance(executor_config, RebalanceExecutorConfig):
+            executor = RebalanceExecutor(self.strategy, executor_config, self.executors_update_interval)
         else:
             raise ValueError("Unsupported executor config type")
 
@@ -112,8 +117,9 @@ class ExecutorOrchestrator:
         controller_id = action.controller_id
         executor_id = action.executor_id
 
-        executor = next((executor for executor in self.executors[controller_id] if executor.config.id == executor_id),
-                        None)
+        executor = next(
+            (executor for executor in self.executors[controller_id] if executor.config.id == executor_id), None
+        )
         if not executor:
             self.logger().error(f"Executor ID {executor_id} not found for controller {controller_id}.")
             return
@@ -126,8 +132,9 @@ class ExecutorOrchestrator:
         controller_id = action.controller_id
         executor_id = action.executor_id
 
-        executor = next((executor for executor in self.executors[controller_id] if executor.config.id == executor_id),
-                        None)
+        executor = next(
+            (executor for executor in self.executors[controller_id] if executor.config.id == executor_id), None
+        )
         if not executor:
             self.logger().error(f"Executor ID {executor_id} not found for controller {controller_id}.")
             return
@@ -188,7 +195,7 @@ class ExecutorOrchestrator:
             global_pnl_quote=global_pnl_quote,
             global_pnl_pct=global_pnl_pct,
             volume_traded=volume_traded,
-            close_type_counts=close_type_counts
+            close_type_counts=close_type_counts,
         )
 
         return report
@@ -214,10 +221,14 @@ class ExecutorOrchestrator:
         return PerformanceReport(
             realized_pnl_quote=global_realized_pnl_quote,
             unrealized_pnl_quote=global_unrealized_pnl_quote,
-            realized_pnl_pct=(global_realized_pnl_quote / global_volume_traded) * 100 if global_volume_traded != 0 else Decimal(0),
-            unrealized_pnl_pct=(global_unrealized_pnl_quote / global_volume_traded) * 100 if global_volume_traded != 0 else Decimal(0),
+            realized_pnl_pct=(
+                (global_realized_pnl_quote / global_volume_traded) * 100 if global_volume_traded != 0 else Decimal(0)
+            ),
+            unrealized_pnl_pct=(
+                (global_unrealized_pnl_quote / global_volume_traded) * 100 if global_volume_traded != 0 else Decimal(0)
+            ),
             global_pnl_quote=global_pnl_quote,
             global_pnl_pct=global_pnl_pct,
             volume_traded=global_volume_traded,
-            close_type_counts=global_close_type_counts
+            close_type_counts=global_close_type_counts,
         )

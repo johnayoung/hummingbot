@@ -1,7 +1,8 @@
 import asyncio
-from typing import Any, Dict, List
+from decimal import Decimal
+from typing import Dict, List
 
-from hummingbot.core.data_type.common import OrderType, PriceType
+from hummingbot.core.data_type.common import OrderType, PriceType, TradeType
 from hummingbot.logger.logger import HummingbotLogger
 from hummingbot.smart_components.executors.executor_base import ExecutorBase
 from hummingbot.smart_components.executors.rebalance_executor.data_types import (
@@ -10,6 +11,17 @@ from hummingbot.smart_components.executors.rebalance_executor.data_types import 
 )
 from hummingbot.smart_components.models.executors import TrackedOrder
 from hummingbot.strategy.script_strategy_base import ScriptStrategyBase
+
+
+class RebalanceAction:
+    asset: str
+    amount: Decimal
+    side: TradeType
+
+    def __init__(self, asset: str, amount: Decimal, side: TradeType):
+        self.asset = asset
+        self.amount = amount
+        self.side = side
 
 
 class RebalanceExecutor(ExecutorBase):
@@ -25,21 +37,45 @@ class RebalanceExecutor(ExecutorBase):
     def is_closed(self):
         return self.rebalance_status in [RebalanceExecutorStatus.COMPLETED, RebalanceExecutorStatus.FAILED]
 
-    def __init__(self, strategy: ScriptStrategyBase, config: RebalanceExecutorConfig, **kwargs):
-        super().__init__(strategy=strategy, connectors=[config.connector_name], config=config)
+    def __init__(self, strategy: ScriptStrategyBase, config: RebalanceExecutorConfig, update_interval: float = 1.0):
+        super().__init__(
+            strategy=strategy, connectors=[config.connector_name], config=config, update_interval=update_interval
+        )
         self.config = config
-        self.current_balances = config.current_balances
-        self.target_weights = config.target_weights
+        self.current_balances = {asset: Decimal(amount) for asset, amount in config.current_balances.items()}
+        self.target_weights = {asset: Decimal(weight) for asset, weight in config.target_weights.items()}
         self.quote_asset = config.quote_asset
         self.quote_weight = config.quote_weight
         self.min_order_amount_to_rebalance_quote = config.min_order_amount_to_rebalance_quote
         self.rebalance_status = RebalanceExecutorStatus.INITIALIZING
         self.tracked_orders: Dict[str, TrackedOrder] = {}
 
+    def validate_sufficient_balance(self):
+        # TODO
+        pass
+
+    def get_net_pnl_quote(self) -> Decimal:
+        """
+        TODO: Returns the net profit or loss in quote currency.
+        """
+        return Decimal(0)
+
+    def get_net_pnl_pct(self) -> Decimal:
+        """
+        TODO: Returns the net profit or loss in percentage.
+        """
+        return Decimal(0)
+
+    def get_cum_fees_quote(self) -> Decimal:
+        """
+        Returns the cumulative fees in quote currency.
+        """
+        return Decimal(0)
+
     def get_trading_pair(self, asset: str) -> str:
         return f"{asset}-{self.quote_asset}"
 
-    def get_asset_value_in_quote(self, asset: str, amount: float) -> float:
+    def get_asset_value_in_quote(self, asset: str, amount: Decimal) -> Decimal:
         # Fetches the price of the asset in terms of the quote asset
         price = self.get_price(
             connector_name=self.config.connector_name,
@@ -48,44 +84,43 @@ class RebalanceExecutor(ExecutorBase):
         )
         return amount * price
 
-    def calculate_total_portfolio_value(self) -> float:
-        total_value = 0.0
+    def calculate_total_portfolio_value(self):
+        total_value = Decimal(0)
         for asset, amount in self.current_balances.items():
-            if asset != self.quote_asset:
-                total_value += self.get_asset_value_in_quote(asset, amount)
-            else:
-                total_value += amount
-
+            if asset in self.target_weights or asset == self.quote_asset:
+                if asset != self.quote_asset:
+                    total_value += self.get_asset_value_in_quote(asset, amount)
+                else:
+                    total_value += amount
         return total_value
 
-    def calculate_total_rebalance_value(self) -> float:
+    def calculate_total_rebalance_value(self):
         total_value = self.calculate_total_portfolio_value()
-        return total_value - (total_value * self.quote_weight)
+        rebalance_weight = Decimal((1 - self.quote_weight))
+        return total_value * rebalance_weight
 
-    def calculate_rebalance_actions(self) -> List[Dict[str, Any]]:
+    def calculate_rebalance_actions(self) -> List[RebalanceAction]:
         total_rebalance_value = self.calculate_total_rebalance_value()
         target_values = {asset: total_rebalance_value * weight for asset, weight in self.target_weights.items()}
 
         trade_actions = []
         for asset, target_value in target_values.items():
             if asset == self.quote_asset:
-                current_value = self.current_balances.get(asset, 0)
-            else:
-                current_value = self.get_asset_value_in_quote(asset, self.current_balances.get(asset, 0))
+                continue  # Skip the quote asset
 
+            current_value = self.get_asset_value_in_quote(asset, self.current_balances.get(asset, Decimal(0)))
             amount_in_quote = target_value - current_value
-            if asset != self.quote_asset:
-                asset_price = self.get_price(
-                    connector_name=self.config.connector_name,
-                    trading_pair=self.get_trading_pair(asset),
-                    price_type=PriceType.MidPrice,
-                )
-                amount = amount_in_quote / asset_price
-            else:
-                amount = amount_in_quote
+
+            asset_price = self.get_price(
+                connector_name=self.config.connector_name,
+                trading_pair=self.get_trading_pair(asset),
+                price_type=PriceType.MidPrice,
+            )
+            amount = amount_in_quote / asset_price
 
             if abs(amount) > 0 and abs(amount) >= self.min_order_amount_to_rebalance_quote:
-                trade_actions.append({"asset": asset, "amount": amount, "side": "buy" if amount > 0 else "sell"})
+                side = TradeType.BUY if amount > 0 else TradeType.SELL
+                trade_actions.append(RebalanceAction(asset=asset, amount=amount, side=side))
 
         return trade_actions
 
@@ -93,8 +128,8 @@ class RebalanceExecutor(ExecutorBase):
         try:
             self.rebalance_status = RebalanceExecutorStatus.SELLING
             actions = self.calculate_rebalance_actions()
-            sell_actions = [action for action in actions if action["side"] == "sell"]
-            buy_actions = [action for action in actions if action["side"] == "buy"]
+            sell_actions = [action for action in actions if action.side == TradeType.SELL]
+            buy_actions = [action for action in actions if action.side == TradeType.BUY]
 
             sell_tasks = [self.place_order_and_wait(action) for action in sell_actions]
             await asyncio.gather(*sell_tasks)
@@ -108,10 +143,10 @@ class RebalanceExecutor(ExecutorBase):
             self.logger().error(f"Error in rebalance executor: {str(e)}")
             self.rebalance_status = RebalanceExecutorStatus.FAILED
 
-    async def place_order_and_wait(self, action: Dict[str, Any]):
-        asset = action["asset"]
-        amount = abs(action["amount"])
-        side = action["side"]
+    async def place_order_and_wait(self, action: RebalanceAction):
+        asset = action.asset
+        amount = abs(action.amount)
+        side = action.side
         try:
             order_id = self.place_order(
                 connector_name=self.config.connector_name,

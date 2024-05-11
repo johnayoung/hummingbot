@@ -4,7 +4,7 @@ from test.isolated_asyncio_wrapper_test_case import IsolatedAsyncioWrapperTestCa
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from hummingbot.data_feed.market_data_provider import MarketDataProvider
-from hummingbot.smart_components.controllers.rebalance_controller_base import (
+from hummingbot.smart_components.controllers.data_types.rebalance_controller_base import (
     RebalanceControllerBase,
     RebalanceControllerConfigBase,
 )
